@@ -19,11 +19,6 @@ async def main():
     print("Creating WebServer")
     ws = WebServer(ws_ssid, ws_pw, cfg.get, cfg.web_update)
 
-    # The Scroller class is used to display the configuration on the OLED display.
-    scroller = Scroller(ws.get_info)
-    print("Creating Scroller task")
-    asyncio.create_task(scroller.run())
-
     # The FreakWAN class is the main class that implements networking.
     print("Creating FreakWAN")
     fw = FreakWAN(cfg.get_plain(), cfg.set_update_callback)
@@ -35,6 +30,11 @@ async def main():
 
     loop = asyncio.get_event_loop()
     loop.set_exception_handler(fw.crash_handler)
+
+    # The Scroller class is used to display the configuration on the OLED display.
+    print("Creating Scroller")
+    scroller = Scroller(ws.get_info, fw.get_battery_perc)
+    asyncio.create_task(scroller.run())
 
     try:
         print("Entering main loop")

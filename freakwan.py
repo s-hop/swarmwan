@@ -410,11 +410,12 @@ class FreakWAN:
             self.processed_b = {}
 
     # Called by the LoRa radio IRQ upon new packet reception.
-    def receive_lora_packet(self,lora_instance,packet,rssi,bad_crc):
+    def receive_lora_packet(self,lora_instance,packet,rssi,snr,bad_crc):
         if self.config['freakwan']['check_crc'] and bad_crc: return
         m = Message.from_encoded(packet,self.keychain)
         if m:
             m.rssi = rssi
+            m.snr = snr
             if bad_crc: m.flags |= MessageFlagsBadCRC
             if m.no_key == True:
                 # This message is encrypted and we don't have the
@@ -436,7 +437,7 @@ class FreakWAN:
                         self.neighbors[m.sender].ctime = time.ticks_ms()
 
                 # Report message to the user.
-                msg_info = "(rssi:%d, ttl:%d, flags:%s)" % (m.rssi,m.ttl,"{0:b}".format(m.flags))
+                msg_info = "(rssi:%d, snr:%d, ttl:%d, flags:%s)" % (m.rssi,m.snr,m.ttl,"{0:b}".format(m.flags))
                 channel_name = "" if not m.key_name else "#"+str(m.key_name)+" "
 
                 if m.flags & MessageFlagsMedia:

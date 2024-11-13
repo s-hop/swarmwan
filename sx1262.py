@@ -352,7 +352,7 @@ class SX1262:
 
             # Call the callback the user registered, if any.
             if self.received_callback:
-                self.received_callback(self, packet, rssi, bad_crc)
+                self.received_callback(self, packet, rssi, snr, bad_crc)
         elif event & IRQSourceTxDone:
             self.msg_sent += 1
             # After sending a message, the chip will return in

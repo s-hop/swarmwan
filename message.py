@@ -65,6 +65,7 @@ class Message:
         self.ack_type = ack_type    # Only ACK
         self.seen = seen            # Only HELLO
         self.rssi = rssi
+        self.snr = 0
         self.key_name = key_name
         self.no_key = False         # True if it was not possible to decrypt.
 

@@ -1,4 +1,3 @@
-import time
 import asyncio
 from picoscroll import PicoScroll, WIDTH, HEIGHT
 
@@ -17,9 +16,10 @@ class ScrollDisplay:
         
 
 class Scroller:
-    def __init__(self, get_server_info):
+    def __init__(self, get_server_info, get_battery_perc):
         self.display = ScrollDisplay()
         self.get_server_info = get_server_info
+        self.get_battery_perc = get_battery_perc
         self.scrolling = False
         self.A = self.display.scroll.BUTTON_A
         self.B = self.display.scroll.BUTTON_B
@@ -50,9 +50,9 @@ class Scroller:
             await self.scroll_text('AP:off', brightness, delay_ms)
         
     
-    async def show_battery_info(self, level, brightness, delay_ms):
-    # TODO: Get actual battery level 
+    async def show_battery_perc(self, brightness, delay_ms):
         self.display.clear()
+        level = self.get_battery_perc()
         await self.scroll_text(f'BAT:{level}%', brightness, delay_ms)
       
 
@@ -105,7 +105,7 @@ class Scroller:
     async def cycle_info(self, loop_delay_ms):
         while True:
             self.wait_if_interrupted()   
-            await self.show_battery_info('69', self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
+            await self.show_battery_perc(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
             
             self.wait_if_interrupted()
             await self.show_ap_info(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
