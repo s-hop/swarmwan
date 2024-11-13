@@ -116,6 +116,13 @@ class FreakWAN:
         self.send_queue = []
         self.send_queue_max = 100 # Don't accumulate too many messages
 
+        # Track the RSSI history for the last few messages, to show on the display.
+        self.rssi_history = []
+        self.rssi_history_max = 8
+        # Initialize the history with -100, so that the display will show a flat line
+        for i in range(self.rssi_history_max):
+            self.rssi_history.append(-100)
+
         # We log received messages on persistent memory
         self.history = History("msg.db",histlen=100,recordsize=256)
 
@@ -173,6 +180,13 @@ class FreakWAN:
 
     def get_num_neighbors(self):
         return len(self.neighbors)
+
+    def update_rssi_history(self,rssi):
+        self.rssi_history.append(rssi)
+        self.rssi_history.pop()
+    
+    def get_rssi_history(self):
+        return self.rssi_history
 
     # # Load settings.txt, with certain changes overriding our
     # # self.config values.

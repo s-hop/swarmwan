@@ -17,11 +17,12 @@ class ScrollDisplay:
         
 
 class Scroller:
-    def __init__(self, get_server_info, get_battery_perc, get_num_neighbors):
+    def __init__(self, get_server_info, get_battery_perc, get_num_neighbors, get_rssi_history):
         self.display = ScrollDisplay()
         self.get_server_info = get_server_info
         self.get_battery_perc = get_battery_perc
         self.get_num_neighbors = get_num_neighbors
+        self.get_rssi_history = get_rssi_history
         self.scrolling = False
         self.A = self.display.scroll.BUTTON_A
         self.B = self.display.scroll.BUTTON_B
@@ -72,8 +73,6 @@ class Scroller:
 
     async def show_rssi_info(self, values, brightness):
         self.display.clear()
-        # TODO: Work out what the shape of RSSI data will be, show some chart of strength/time
-        # Divide screen into 2pixel columns, column height represents signal strength.
         bar_width = 2
         norm_values = self.normalise_rssi_heights(values)
 
@@ -95,7 +94,7 @@ class Scroller:
     def normalise_rssi_heights(self, rssi_values):
         normalised = []
         for value in rssi_values:
-            normalised.append(min(7, max(0, int((value + 100) * 7 / 100))))
+            normalised.append(min(7, max(1, int((value + 100) * 7 / 100))))
         return normalised
 
 
@@ -119,7 +118,7 @@ class Scroller:
             await self.show_storage_info('90', self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
             
             self.wait_if_interrupted()
-            values = [-70, -80, -70, -60, -50, -40, -50, -60]
+            values = self.get_rssi_history()
             await self.show_rssi_info(values, self.display.DEF_BRIGHTNESS)
 
             # wait longer between loops for battery saving.
