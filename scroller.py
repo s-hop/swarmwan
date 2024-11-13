@@ -1,3 +1,4 @@
+import time
 import asyncio
 from picoscroll import PicoScroll, WIDTH, HEIGHT
 
@@ -16,10 +17,11 @@ class ScrollDisplay:
         
 
 class Scroller:
-    def __init__(self, get_server_info, get_battery_perc):
+    def __init__(self, get_server_info, get_battery_perc, get_num_neighbors):
         self.display = ScrollDisplay()
         self.get_server_info = get_server_info
         self.get_battery_perc = get_battery_perc
+        self.get_num_neighbors = get_num_neighbors
         self.scrolling = False
         self.A = self.display.scroll.BUTTON_A
         self.B = self.display.scroll.BUTTON_B
@@ -56,10 +58,10 @@ class Scroller:
         await self.scroll_text(f'BAT:{level}%', brightness, delay_ms)
       
 
-    async def show_nearby_info(self, nearby, brightness, delay_ms):
-    # TODO: Get actual num of neighbours
+    async def show_nearby_info(self, brightness, delay_ms):
         self.display.clear()
-        await self.scroll_text(f'NEAR:{nearby}', brightness, delay_ms)
+        neighbors = self.get_num_neighbors()
+        await self.scroll_text(f'NEAR:{neighbors}', brightness, delay_ms)
      
 
     async def show_storage_info(self, storage, brightness, delay_ms):
@@ -111,7 +113,7 @@ class Scroller:
             await self.show_ap_info(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
             
             self.wait_if_interrupted()
-            await self.show_nearby_info('2', self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
+            await self.show_nearby_info(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
             
             self.wait_if_interrupted()
             await self.show_storage_info('90', self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)

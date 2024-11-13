@@ -171,6 +171,9 @@ class FreakWAN:
         self.config.update(new_config)
         self.config_updated = True
 
+    def get_num_neighbors(self):
+        return len(self.neighbors)
+
     # # Load settings.txt, with certain changes overriding our
     # # self.config values.
     # def load_settings(self):

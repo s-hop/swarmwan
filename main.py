@@ -33,7 +33,7 @@ async def main():
 
     # The Scroller class is used to display the configuration on the OLED display.
     print("Creating Scroller")
-    scroller = Scroller(ws.get_info, fw.get_battery_perc)
+    scroller = Scroller(ws.get_info, fw.get_battery_perc, fw.get_num_neighbors)
     asyncio.create_task(scroller.run())
 
     try:
