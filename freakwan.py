@@ -30,36 +30,15 @@ from device_config import DeviceConfig
 
 # The application itself, including all the WAN routing logic.
 class FreakWAN:
-    def __init__(self, config, set_config_update_cb):
+    def __init__(self, logger, config, set_config_update_cb):
+        self.logger = logger
+        self.logger_tag = "freakwan"
 
         # Save the configuration data and register the function 
         # to call when config is updated from the web server.
         self.config = config
         self.config_updated = False
         set_config_update_cb(self.handle_config_update)
-
-        # Initialize data structures...
-        # self.config = {
-        #     'nick': 'freakwan',
-        #     'automsg': True,
-        #     'tx_led': False,
-        #     'relay_num_tx': 3,
-        #     'relay_max_delay': 10000,
-        #     'relay_rssi_limit': -60,
-        #     'status': "Hi there!",
-        #     'sleep_battery_perc': 20,
-        #     # When promiscuous mode is enabled, we can debug all the messages we
-        #     # receive, as the message cache, to avoid re-processing messages,
-        #     # is disabled.
-        #     'prom': False,
-        #     # When quiet mode is on, we avoid sending any non-data packet and
-        #     # to relay other packets, in order to lower our channel usage.
-        #     # So no ACKs, relayed packets, HELLO messages, no repeated messages.
-        #     'quiet': False,
-        #     'check_crc': True, # Discard packets with wrong CRC if False.
-        # }
-        # self.config.update(UserConfig.config)
-        # self.config.update(DeviceConfig.config)
 
         #################################################################
         # The first thing we need to initialize is the different devices
@@ -124,7 +103,7 @@ class FreakWAN:
             self.rssi_history.append(-100)
 
         # We log received messages on persistent memory
-        self.history = History("msg.db",histlen=100,recordsize=256)
+        # self.history = History("msg.db",histlen=100,recordsize=256)
 
         # Our keychain is responsible of handling keys and
         # encrypting / decrypting packets.
@@ -294,7 +273,9 @@ class FreakWAN:
     # Send packets waiting in the send queue if duty cycle is below limit. 
     # TODO: Work out a better way to handle the duty cycle limit (currently can go over).
     def send_messages_in_queue(self):
-        if self.duty_cycle.get_duty_cycle() >= self.config['freakwan']['duty_cycle_limit']: return
+        if self.duty_cycle.get_duty_cycle() >= self.config['freakwan']['duty_cycle_limit']:
+            self.logger.log_sys(self.logger_tag, 'WARN', 'Duty cycle limit reached!')
+            return
         if self.lora.modem_is_receiving_packet(): return
         send_later = [] # List of messages we can't send, yet.
         while len(self.send_queue):
@@ -307,7 +288,10 @@ class FreakWAN:
                 # a very long time, and if so, reset the LoRa radio.
                 if self.lora.tx_in_progress:
                     if self.duty_cycle.get_current_tx_time() > 60000:
-                        self.serial_log("WARNING: TX watchdog radio reset")
+                        warning = 'TX watchdog radio reset'
+                        self.serial_log(warning)
+                        self.logger.log_sys(self.logger_tag, 'WARN', warning)
+
                         self.lora_reset_and_configure()
                         self.lora.receive()
                     # Put back the message, in the same order as
@@ -324,6 +308,7 @@ class FreakWAN:
                         self.duty_cycle.start_tx()
                         self.lora.send(encoded)
                         time.sleep_ms(1)
+                        self.logger.log_msg('tx', m.to_log_strings())
                     else:
                         m.send_canceled = True
 
@@ -355,7 +340,9 @@ class FreakWAN:
         if m.flags & MessageFlagsRelayed: return # Don't acknowledge relayed.
         ack = Message(mtype=MessageTypeAck,uid=m.uid,ack_type=m.type)
         self.send_asynchronously(ack,max_delay=0)
-        self.serial_log("[>> net] Sending ACK about "+("%08x"%m.uid))
+        info = ">> Sending ACK about "+("%08x"%m.uid)
+        self.serial_log(info)
+        self.logger.log_sys(self.logger_tag, 'INFO', info)
 
     # Called for data messages we see for the first time. If the
     # originator asked for relay, we schedule a retransmission of
@@ -375,8 +362,9 @@ class FreakWAN:
         m.ttl -= 1
         m.flags |= MessageFlagsRelayed  # This is a relay. No ACKs, please.
         self.send_asynchronously(m,num_tx=self.config['freakwan']['relay_num_tx'],max_delay=self.config['freakwan']['relay_max_delay'])
-        self.scroller.icons.set_relay_visibility(True)
-        self.serial_log("[>> net] Relaying "+("%08x"%m.uid)+" from "+m.nick)
+        info = ">> Relaying "+("%08x"%m.uid)+" from "+m.nick
+        self.serial_log(info)
+        self.logger.log_sys(self.logger_tag, 'INFO', info)
 
     # Return the message if it was already marked as processed, otherwise
     # None is returned.
@@ -419,7 +407,7 @@ class FreakWAN:
             if age <= maxage:
                 self.processed_b[uid] = m
             else:
-                self.serial_log("[cache] Evicted: "+"%08x"%uid)
+                self.serial_log("Cache evicted: "+"%08x"%uid)
 
         # If we processed all the items of the 'a' dictionary, start again.
         if len(self.processed_a) == 0 and len(self.processed_b) != 0:
@@ -442,7 +430,9 @@ class FreakWAN:
             elif m.type == MessageTypeData:
                 # Already processed? Return ASAP.
                 if self.mark_as_processed(m):
-                    self.serial_log("[<< net] Ignore duplicated message "+("%08x"%m.uid)+" <"+m.nick+"> "+m.text)
+                    info = "<< Ignore duplicated message: " + ("%08x"%m.uid)
+                    self.serial_log(info)
+                    self.logger.log_sys(self.logger_tag, 'INFO', info)
                     return
 
                 # If this message is not relayed by some other node, then
@@ -458,7 +448,9 @@ class FreakWAN:
                 channel_name = "" if not m.key_name else "#"+str(m.key_name)+" "
 
                 if m.flags & MessageFlagsMedia:
-                    self.serial_log("[<<< net] Unknown media type %d" % m.media_type)
+                    err = "<< Media type not implemented: %d" % m.media_type
+                    self.serial_log(err)
+                    self.logger.log_sys(self.logger_tag, 'ERROR', err)
                     user_msg = channel_name+m.nick+"> unknown media"
                 else:
                     user_msg = channel_name+m.nick+"> "+m.text
@@ -467,42 +459,51 @@ class FreakWAN:
 
                 self.serial_log("\033[32m"+channel_name+user_msg+" "+msg_info+"\033[0m", force=True)
 
+                # Log the message to the log file.
+                self.logger.log_msg('rx', m.to_log_strings())
+
                 # Reply with ACK if needed.
                 self.send_ack_if_needed(m)
 
-                # Save message on history DB
-                encoded = m.encode(keychain=self.keychain)
-                if encoded != None: self.history.append(encoded)
+                # # Save message on history DB
+                # encoded = m.encode(keychain=self.keychain)
+                # if encoded != None: self.history.append(encoded)
 
                 # Relay if needed.
                 self.relay_if_needed(m)
             elif m.type == MessageTypeAck:
                 about = self.get_processed_message(m.uid)
                 if about != None:
-                    self.scroller.icons.set_ack_visibility(True)
-                    self.serial_log("[<< net] Got ACK about "+("%08x"%m.uid)+" by "+m.sender_to_str())
+                    info = "<< Got ACK about "+("%08x"%m.uid)+" by "+m.sender_to_str()
+                    self.serial_log(info)
+                    self.logger.log_sys(self.logger_tag, 'INFO', info)
                     about.acks[m.sender] = True
                     # If we received ACKs from all the nodes we know about,
                     # stop retransmitting this message.
                     if len(self.neighbors) and len(about.acks) == len(self.neighbors):
                         about.send_canceled = True
-                        self.serial_log("[<< net] ACKs received from all the %d known nodes. Suppress resending." % (len(self.neighbors)))
+                        info = "<< ACKs received from all the %d known nodes. Suppress resending." % (len(self.neighbors))
+                        self.serial_log(info)
+                        self.logger.log_sys(self.logger_tag, 'INFO', info)
             elif m.type == MessageTypeHello:
                 # Limit the number of neighbors to protect against OOM
                 # due to bugs or too many nodes near us.
                 max_neighbors = 32
                 if not m.sender in self.neighbors:
-                    msg = "[net] New node sensed: "+m.sender_to_str()
-                    self.serial_log(msg)
+                    info = "<< New node sensed: "+m.sender_to_str()
+                    self.serial_log(info)
+                    self.logger.log_sys(self.logger_tag, 'INFO', info)
                 self.neighbors[m.sender] = m
                 if len(self.neighbors) > max_neighbors:
                     self.neighbors.popitem()
             else:
-                self.serial_log("receive_lora_packet(): message type not implemented: %d" % m.type)
+                err = "<< Message type not implemented: %d" % m.type
+                self.serial_log(err)
+                self.logger.log_sys(self.logger_tag, 'ERROR', err) 
         else:
-            self.serial_log("!!! Can't decoded packet: "+repr(packet))
-            if self.config['freakwan']['prom']:
-                self.scroller.print("Unrecognized LoRa packet: "+repr(packet))
+            err = "<< Can't decode packet: "+repr(packet)
+            self.serial_log(err)
+            self.logger.log_sys(self.logger_tag, 'ERROR', err)
 
     # Send HELLO messages from time to time. Evict nodes not refreshed
     # for some time from the neighbors list.
@@ -519,13 +520,16 @@ class FreakWAN:
                 if age <= hello_msg_max_age:
                     new[sender] = m
                 else:
-                    self.serial_log("[net] Flushing timedout neighbor: "+
-                        m.sender_to_str()+" ("+m.nick+")")
+                    info = ">> Flushing timedout neighbor: "+m.sender_to_str()+" ("+m.nick+")"
+                    self.serial_log(info)
+                    self.logger.log_sys(self.logger_tag, 'INFO', info)
             self.neighbors = new
 
             # Send HELLO, if not in quiet mode.
             if not self.config['freakwan']['quiet']:
-                self.serial_log("[net] Sending HELLO message")
+                info = ">> Sending HELLO message"
+                self.serial_log(info)
+                self.logger.log_sys(self.logger_tag, 'INFO', info)
                 msg = Message(mtype=MessageTypeHello,
                             nick=self.config['freakwan']['nick'],
                             text=self.config['freakwan']['status'],
@@ -545,8 +549,8 @@ class FreakWAN:
         counter = 0
         while True:
             if self.config['freakwan']['automsg']:
-                msg = Message(nick=self.config['freakwan']['nick'],
-                            text="Hi "+str(counter))
+                key = self.keychain.list_keys()[0]
+                msg = Message(nick=self.config['freakwan']['nick'],text="Hi "+str(counter),key_name=key)
                 self.send_asynchronously(msg,max_delay=15000,num_tx=1,relay=True)
                 counter += 1
             await asyncio.sleep(urandom.randint(15000,20000)/1000) 
@@ -562,6 +566,7 @@ class FreakWAN:
         msg += " FreeMem:"+str(gc.mem_free())
         msg += " DutyCycle: %.2f%%" % self.duty_cycle.get_duty_cycle()
         self.serial_log(msg)
+        # self.logger.log_sys(self.logger_tag, 'INFO', msg)
 
     # Return if the battery is under the low battery threshould.
     # If 'try_awake' is true, it means we are asking from the point
@@ -628,13 +633,15 @@ class FreakWAN:
 
         while True:
             if tick % 10 == 0: gc.collect()
-            if tick % 50 == 0: self.show_status_log()
+            if tick % 150 == 0: self.show_status_log()
 
             # Periodically check the battery level, and if too low, protect
             # it shutting the device down.
             if tick % 100 == 0:
                 if self.low_battery():
-                    self.serial_log("Low battery, shutting down")
+                    info = "Low battery, shutting down"
+                    self.serial_log(info)
+                    self.logger.log_sys(self.logger_tag, 'INFO', info)
                     # TODO: print something to the display to signal the low battery.
                     time.sleep_ms(15000)
                     self.power_off(5000)

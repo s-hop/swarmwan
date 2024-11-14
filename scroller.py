@@ -1,14 +1,16 @@
-import time
 import asyncio
+import time
+from micropython import const
 from picoscroll import PicoScroll, WIDTH, HEIGHT
 
 
 class ScrollDisplay:
     def __init__(self):
         self.scroll = PicoScroll()
-        self.DEF_BRIGHTNESS = 10
-        self.DEF_SCROLL_DELAY = 60
-        self.DEF_LOOP_DELAY = 5000
+        self.DEF_BRIGHTNESS = const(10)
+        self.DEF_SCROLL_DELAY = const(60)
+        self.DEF_LOOP_DELAY = const(5000)
+        self.DEF_TOGGLE_DELAY = const(1000)
         
         
     def clear(self):
@@ -23,14 +25,21 @@ class Scroller:
         self.get_battery_perc = get_battery_perc
         self.get_num_neighbors = get_num_neighbors
         self.get_rssi_history = get_rssi_history
-        self.scrolling = False
+
         self.A = self.display.scroll.BUTTON_A
         self.B = self.display.scroll.BUTTON_B
         self.X = self.display.scroll.BUTTON_X
         self.Y = self.display.scroll.BUTTON_Y
+
+        
+        self.scrolling = False
+        self.on = True
+
     
-    # TODO: accept callback functions as arguments for button presses.
-    
+    def toggle_display(self):
+        self.on = not self.on
+            
+
     async def scroll_text(self, text, brightness, delay_ms):
         l = len(text) * 6
         self.scrolling = True
@@ -65,10 +74,10 @@ class Scroller:
         await self.scroll_text(f'NEAR:{neighbors}', brightness, delay_ms)
      
 
-    async def show_storage_info(self, storage, brightness, delay_ms):
-    # TODO: Get actual remaining storage capacity
-        self.display.clear()
-        await self.scroll_text(f'SD:{storage}%', brightness, delay_ms)  
+    # async def show_storage_info(self, storage, brightness, delay_ms):
+    # # TODO: Get actual remaining storage capacity
+    #     self.display.clear()
+    #     await self.scroll_text(f'SD:{storage}%', brightness, delay_ms)  
    
 
     async def show_rssi_info(self, values, brightness):
@@ -103,21 +112,27 @@ class Scroller:
         while self.scrolling: await asyncio.sleep_ms(1000)
 
 
-    async def cycle_info(self, loop_delay_ms):
+    async def cycle_info(self, toggle_delay_ms, loop_delay_ms):
         while True:
-            self.wait_if_interrupted()   
+            self.display.clear()
+
+            if not self.on: 
+                await asyncio.sleep_ms(toggle_delay_ms)
+                continue
+            
+            # self.wait_if_interrupted()   
             await self.show_battery_perc(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
             
-            self.wait_if_interrupted()
+            # self.wait_if_interrupted()
             await self.show_ap_info(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
             
-            self.wait_if_interrupted()
+            # self.wait_if_interrupted()
             await self.show_nearby_info(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
             
-            self.wait_if_interrupted()
-            await self.show_storage_info('90', self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
+            # self.wait_if_interrupted()
+            # await self.show_storage_info('90', self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
             
-            self.wait_if_interrupted()
+            # self.wait_if_interrupted()
             values = self.get_rssi_history()
             await self.show_rssi_info(values, self.display.DEF_BRIGHTNESS)
 
@@ -125,6 +140,6 @@ class Scroller:
             await asyncio.sleep_ms(loop_delay_ms)
             
     async def run(self):
-        asyncio.create_task(self.cycle_info(self.display.DEF_LOOP_DELAY))
+        asyncio.create_task(self.cycle_info(self.display.DEF_TOGGLE_DELAY, self.display.DEF_LOOP_DELAY))
 
     

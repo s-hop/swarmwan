@@ -30,7 +30,7 @@ lora:
   #$ tag:input type:range min:-9 max:22 step:1 unit:dBm
   tx_power: 2
   #$ tag:input type:range min:6 max:12 step:1
-  spread_factor: 12
+  spread_factor: 6
   #$ tag:input type:range min:5 max:8 step:1 unit:4/n
   coding_rate: 8
   #$ tag:input type:number min:430000000 max:928000000 step:10000 unit:Hz
@@ -52,6 +52,18 @@ sx1262:
   clock: 18
   miso: 16
   dio: 20
+
+sd_spi:
+  chan: 1
+  mosi: 11
+  miso: 8
+  sck: 10
+  cs: 9
+
+rtc_i2c:
+  chan: 1
+  sda: 6
+  scl: 7
 
 tx_led:
   pin: WL_GPIO0

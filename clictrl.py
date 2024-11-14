@@ -261,15 +261,6 @@ class CommandsController:
         send_reply("battery %d%%, %.2f volts" % (perc,volts))
         return True
 
-    def cmd_font(self,argv,argc,send_reply):
-        if argc != 2: return False
-        if argv[1] not in ["big","small"]:
-            send_reply("Use big or small.")
-        else:
-            self.fw.scroller.select_font(argv[1])
-            self.fw.refresh_view()
-        return True
-
     def cmd_ls(self,argv,argc,send_reply):
         if argc != 1: return False
         list_item = 0
