@@ -34,6 +34,7 @@ async def main():
     asyncio.create_task(fw.send_hello_message())
     asyncio.create_task(fw.send_periodic_message())
     asyncio.create_task(fw.receive_from_serial())
+    asyncio.create_task(fw.cycle_configurations())
 
     loop = asyncio.get_event_loop()
     loop.set_exception_handler(fw.crash_handler)
@@ -52,7 +53,8 @@ async def main():
             if scroller.display.scroll.is_pressed(scroller.A):
                 scroller.display.clear() # Brief flash to indicated button press. TODO: improve press feedback.
                 await handle_server_toggle(scroller, ws)
-            await asyncio.sleep_ms(1000)
+            # extended poll time, to allow for potential dexterity issues with the reed switch.
+            await asyncio.sleep_ms(2000)
     except KeyboardInterrupt:
         fw.lora.reset() # Avoid receiving messages while stopped
 

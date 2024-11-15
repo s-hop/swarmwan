@@ -167,6 +167,35 @@ class FreakWAN:
     def get_rssi_history(self):
         return self.rssi_history
 
+    # pretty crude algorithm to cycle through different LoRa configurations, doesn't yet save configuration changes 
+    # in case of reset. TODO: save configuration changes in case of reset
+    async def cycle_configurations(self):
+        while True:
+            for bandwidth in [62500, 125000, 250000, 500000]:
+                for spread_factor in [7, 8, 9, 10, 11, 12]:
+                    # Calculate the next switch time (90 minutes from the last switch)
+                    now = time.localtime(self.logger.rtc.datetime)
+                    minutes_since_epoch = now[3] * 60 + now[4]
+                    next_switch_minutes = ((minutes_since_epoch // 90) + 1) * 90
+                    next_switch_hour = next_switch_minutes // 60
+                    next_switch_minute = next_switch_minutes % 60
+                    seconds_until_next_switch = ((next_switch_hour - now[3]) * 60 + (next_switch_minute - now[4])) * 60 - now[5]
+
+                    # Wait until the next switch time
+                    await asyncio.sleep(15)
+
+                    # Change the configuration
+                    cfg = self.config['lora']
+                    cfg['spread_factor'] = spread_factor
+                    cfg['bandwidth'] = bandwidth
+
+                    self.lora_reset_and_configure()
+
+                    cfg_str = f'Configured LoRa with: freq={cfg['frequency']}, bw={cfg['bandwidth']}, cr={cfg['coding_rate']}, sf={cfg['spread_factor']}, pw={cfg['tx_power']}'
+                    print(cfg_str)
+                    self.logger.log_sys(tag=self.logger_tag, log_type='INFO', message=cfg_str)
+
+
     # # Load settings.txt, with certain changes overriding our
     # # self.config values.
     # def load_settings(self):
@@ -551,18 +580,20 @@ class FreakWAN:
             if self.config['freakwan']['automsg']:
                 key = self.keychain.list_keys()[0]
                 msg = Message(nick=self.config['freakwan']['nick'],text="Hi "+str(counter),key_name=key)
+                info = ">> Sending AUTO message"
+                self.serial_log(info)
+                self.logger.log_sys(self.logger_tag, 'INFO', info)
                 self.send_asynchronously(msg,max_delay=15000,num_tx=1,relay=True)
                 counter += 1
-            await asyncio.sleep(urandom.randint(15000,20000)/1000) 
+            await asyncio.sleep(urandom.randint(20000,30000)/1000) 
 
     # This shows some information about the process in the debug console.
     def show_status_log(self):
         sent = self.lora.msg_sent
-        cached_total = len(self.processed_a)+len(self.processed_b)
         msg = "~"+self.config['freakwan']['nick']
         msg += " Sent:"+str(sent)
-        msg += " SendQueue:"+str(len(self.send_queue))
-        msg += " CacheLen:"+str(cached_total)
+        msg += " Queue:"+str(len(self.send_queue))
+        msg += " Battery:"+str(self.get_battery_perc())+"%"
         msg += " FreeMem:"+str(gc.mem_free())
         msg += " DutyCycle: %.2f%%" % self.duty_cycle.get_duty_cycle()
         self.serial_log(msg)
@@ -633,7 +664,7 @@ class FreakWAN:
 
         while True:
             if tick % 10 == 0: gc.collect()
-            if tick % 150 == 0: self.show_status_log()
+            if tick % 200 == 0: self.show_status_log()
 
             # Periodically check the battery level, and if too low, protect
             # it shutting the device down.

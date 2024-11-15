@@ -29,12 +29,12 @@ freakwan:
 lora:
   #$ tag:input type:range min:-9 max:22 step:1 unit:dBm
   tx_power: 2
-  #$ tag:input type:range min:6 max:12 step:1
-  spread_factor: 6
+  #$ tag:input type:range min:7 max:12 step:1
+  spread_factor: 7
   #$ tag:input type:range min:5 max:8 step:1 unit:4/n
   coding_rate: 8
   #$ tag:input type:number min:430000000 max:928000000 step:10000 unit:Hz
-  frequency: 868500000
+  frequency: 869500000
   #$ tag:select options:7800,10400,15600,20800,31250,41700,62500,125000,250000,500000 unit:Hz
   bandwidth: 125000
   #$ tag:input type:checkbox
