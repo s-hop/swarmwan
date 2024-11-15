@@ -1,5 +1,4 @@
-import asyncio
-import time
+import asyncio, time
 from micropython import const
 from picoscroll import PicoScroll, WIDTH, HEIGHT
 
@@ -11,32 +10,17 @@ class ScrollDisplay:
         self.DEF_SCROLL_DELAY = const(60)
         self.DEF_LOOP_DELAY = const(5000)
         self.DEF_TOGGLE_DELAY = const(1000)
+
+        self.on = True
+        self.scrolling = False
         
         
     def clear(self):
         self.scroll.clear()
         self.scroll.show()
-        
 
-class Scroller:
-    def __init__(self, get_server_info, get_battery_perc, get_num_neighbors, get_rssi_history):
-        self.display = ScrollDisplay()
-        self.get_server_info = get_server_info
-        self.get_battery_perc = get_battery_perc
-        self.get_num_neighbors = get_num_neighbors
-        self.get_rssi_history = get_rssi_history
 
-        self.A = self.display.scroll.BUTTON_A
-        self.B = self.display.scroll.BUTTON_B
-        self.X = self.display.scroll.BUTTON_X
-        self.Y = self.display.scroll.BUTTON_Y
-
-        
-        self.scrolling = False
-        self.on = True
-
-    
-    def toggle_display(self):
+    def toggle(self):
         self.on = not self.on
             
 
@@ -45,39 +29,48 @@ class Scroller:
         self.scrolling = True
         
         for j in range(-WIDTH, l):
-            self.display.scroll.show_text(text, brightness, j)
-            self.display.scroll.show()
+            self.scroll.show_text(text, brightness, j)
+            self.scroll.show()
             await asyncio.sleep_ms(delay_ms)
             
         self.scrolling = False
         return True
+        
+
+class Scroller:
+    def __init__(self, get_server_info, get_battery_perc, get_num_neighbors, get_rssi_history):
+        self.display = ScrollDisplay()
+
+        self.get_server_info = get_server_info
+        self.get_battery_perc = get_battery_perc
+        self.get_num_neighbors = get_num_neighbors
+        self.get_rssi_history = get_rssi_history
+
+        self.A = self.display.scroll.BUTTON_A
+        # self.B = self.display.scroll.BUTTON_B
+        # self.X = self.display.scroll.BUTTON_X
+        # self.Y = self.display.scroll.BUTTON_Y
 
 
     async def show_ap_info(self, brightness, delay_ms):
         self.display.clear()
         server_info = self.get_server_info()
         if server_info.active:
-            await self.scroll_text(f'SSID:{server_info.ssid}', brightness, delay_ms)
+            await self.display.scroll_text(f'SSID:{server_info.ssid}', brightness, delay_ms)
         else:
-            await self.scroll_text('AP:off', brightness, delay_ms)
+            await self.display.scroll_text('AP:off', brightness, delay_ms)
         
     
     async def show_battery_perc(self, brightness, delay_ms):
         self.display.clear()
         level = self.get_battery_perc()
-        await self.scroll_text(f'BAT:{level}%', brightness, delay_ms)
+        await self.display.scroll_text(f'BAT:{level}%', brightness, delay_ms)
       
 
     async def show_nearby_info(self, brightness, delay_ms):
         self.display.clear()
         neighbors = self.get_num_neighbors()
-        await self.scroll_text(f'NEAR:{neighbors}', brightness, delay_ms)
-     
-
-    # async def show_storage_info(self, storage, brightness, delay_ms):
-    # # TODO: Get actual remaining storage capacity
-    #     self.display.clear()
-    #     await self.scroll_text(f'SD:{storage}%', brightness, delay_ms)  
+        await self.display.scroll_text(f'NEAR:{neighbors}', brightness, delay_ms)
    
 
     async def show_rssi_info(self, values, brightness):
@@ -107,32 +100,20 @@ class Scroller:
         return normalised
 
 
-    async def wait_if_interrupted(self):
-    # waits for interrupting messages to scroll before continuing.
-        while self.scrolling: await asyncio.sleep_ms(1000)
-
-
     async def cycle_info(self, toggle_delay_ms, loop_delay_ms):
         while True:
             self.display.clear()
 
-            if not self.on: 
+            if not self.display.on: 
                 await asyncio.sleep_ms(toggle_delay_ms)
                 continue
-            
-            # self.wait_if_interrupted()   
+
             await self.show_battery_perc(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
-            
-            # self.wait_if_interrupted()
+
             await self.show_ap_info(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
-            
-            # self.wait_if_interrupted()
+
             await self.show_nearby_info(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
-            
-            # self.wait_if_interrupted()
-            # await self.show_storage_info('90', self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
-            
-            # self.wait_if_interrupted()
+
             values = self.get_rssi_history()
             await self.show_rssi_info(values, self.display.DEF_BRIGHTNESS)
 

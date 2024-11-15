@@ -1,8 +1,4 @@
-import asyncio
-import gc
-import os
-import time
-import vfs
+import asyncio, gc, os, time, vfs
 from machine import I2C, SPI, Pin, RTC
 from pcf8523 import PCF8523
 from sdcard import SDCard
@@ -84,9 +80,9 @@ class Logger:
                 file.write(f'{self.get_time_str()},{tag},{log_type},{message}\n')
 
 
-# TODO: Think of a way to deliver large log files from the web server. Possibly serve separate log files for each day
-# on separate pages.
-    async def read_log_in_chunks(self, log_type='msg', chunk_size=512):
+    # TODO: Think of a way to deliver large log files from the web server. Possibly serve separate log files for each day
+    # on separate pages.
+    async def read_log_file(self, log_type='msg', chunk_size=512):
         pos = 0
         if self.current_logfile in os.listdir(f'/sd/{log_type}_log'):
             with open(f'/sd/{log_type}_log/{self.current_logfile}', mode='rb') as file:
@@ -103,19 +99,6 @@ class Logger:
             return memoryview(self.log_array)
         else:
             print('No log file found')
-
-
-    # async def read_log(self, log_type='msg'):
-        # if self.current_logfile in os.listdir(f'/sd/{log_type}_log'):
-        #     return f'/sd/{log_type}_log/{self.current_logfile}'
-        # else:
-        #     return 'No log file found'
-
-        # if self.current_logfile in os.listdir(f'/sd/{log_type}_log'):
-        #     with open(f'/sd/{log_type}_log/{self.current_logfile}', mode='r') as file:
-        #         return file.read()
-        # else:
-        #     return 'No log file found'
 
 
     # Check RTC & SD card init correctly. Prints timestamp+message each second.
