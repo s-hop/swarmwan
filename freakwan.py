@@ -18,9 +18,9 @@ TX_AGAIN_MIN_DELAY = const(3000)
 TX_AGAIN_MAX_DELAY = const(8000)
 
 import machine, time, random, gc, sys, io
-import select
+import asyncio, select
+from collections import OrderedDict
 from machine import Pin, SoftI2C, ADC, SPI
-import asyncio
 from history import History
 from message import *
 from clictrl import CommandsController
@@ -39,7 +39,7 @@ class FreakWAN:
         self.config = config
         self.config_updated = False
         set_config_update_cb(self.handle_config_update)
-
+        
         #################################################################
         # The first thing we need to initialize is the different devices
         # ways to obtain battery information and the TX led.
@@ -52,7 +52,7 @@ class FreakWAN:
 
         # Init TX led
         if self.config['tx_led']:
-            self.tx_led = Pin(self.config['tx_led']['pin'],Pin.OUT)
+            self.tx_led = Pin(self.config['tx_led']['pin'], Pin.OUT)
         else:
             self.tx_led = None
 
@@ -148,6 +148,11 @@ class FreakWAN:
 
         # If false, disable logging of debug info to serial.
         self.serial_log_enabled = True
+        
+        # Testing task
+        self.cycle_config_task = None
+        self.cycle_interval_mins = self.config['freakwan']['test_interval']
+
 
     # Restart
     def reset(self):
@@ -162,40 +167,135 @@ class FreakWAN:
 
     def update_rssi_history(self,rssi):
         self.rssi_history.append(rssi)
-        self.rssi_history.pop()
+        # Only keep the last 8 items
+        if len(self.rssi_history) > self.rssi_history_max:
+            self.rssi_history = self.rssi_history[-self.rssi_history_max:]
     
     def get_rssi_history(self):
+        print(f'RSSI history = {self.rssi_history}')
         return self.rssi_history
+    
+    def get_lora_params(self):
+        return self.config['lora']
+    
+    def get_duty_cycle(self):
+        return self.duty_cycle.get_duty_cycle()
+        
+#     async def cycle_configurations(self):
+#         cfg_file = 'cycle_cfg.txt'
+#         opts_bw = [7800,10400,15600,20800,31250,41700,62500,125000,250000,500000]
+#         opts_sf = [7, 8, 9, 10, 11, 12]
+#         opts_cr = [5,6,7,8]
+#         
+#         # Read the last configuration from file
+#         with open(f'{cfg_file}', 'r') as f:
+#             text = f.read().split(',')
+#         
+#         interval_mins = int(text[0])
+#         bw_i = int(text[1])
+#         sf_i = int(text[2])
+#         cr_i = int(text[3])
+#         
+#         cfg = self.config['lora']
+#         
+#         while True:
+#             for i in range(bw_i, bw_i + len(opts_bw)):
+#                 bw_i = i % len(opts_bw)
+#                 for j in range(sf_i, sf_i + len(opts_sf)):
+#                     sf_i = j % len(opts_sf)
+#                     for k in range(cr_i, cr_i + len(opts_cr)):
+#                         cr_i = k % len(opts_cr)
+#                         
+#                         # Change the configuration
+#                         cfg['bandwidth'] = opts_bw[bw_i]
+#                         cfg['spread_factor'] = opts_sf[sf_i]
+#                         cfg['coding_rate'] = opts_cr[cr_i]
+#                         
+#                         self.lora_reset_and_configure()
+#                         
+#                         cfg_str = f'Configured LoRa with: freq={cfg["frequency"]} bw={cfg["bandwidth"]} sf={cfg["spread_factor"]} cr={cfg["coding_rate"]} pw={cfg["tx_power"]}'
+#                         print(cfg_str)
+#                         self.logger.log_sys(tag=self.logger_tag, log_type='INFO', message=cfg_str)
+#                         
+#                         # Write current indexes to file
+#                         with open(f'{cfg_file}', 'w') as f:
+#                             f.write(f'{interval_mins},{bw_i},{sf_i},{cr_i}')
+#                         
+#                         # Wait until the next switch time
+#                         await asyncio.sleep(self.calculate_cycle_change_secs(interval_mins))
+#                             
+#                     cr_i = 0     
+#                 sf_i = 0 
+#             bw_i = 0
 
-    # pretty crude algorithm to cycle through different LoRa configurations, doesn't yet save configuration changes 
-    # in case of reset. TODO: save configuration changes in case of reset
     async def cycle_configurations(self):
+        # randomised list of frequencies and bandwidths to cycle through.
+        map_file = 'freq_map.txt'
+        # previous frequency set to (useful if device is reset).
+        # prev_file = 'freq_prev.txt'
+        
+        freq_map = OrderedDict()
+        # prev_freq = None
+        
+        with open(f'{map_file}', 'r') as f:
+            for line in f:
+                pair = line.split(',')
+                freq_map[int(pair[0])]=int(pair[1])
+
+#         try:        
+#             with open(f'{prev_file}', 'r') as f:
+#                 freq = int(f.readline())
+#                 if freq != 0:
+#                     prev_freq = freq
+#         except OSError:
+#             prev_freq = min(freq_map.keys())
+                
         while True:
-            for bandwidth in [62500, 125000, 250000, 500000]:
-                for spread_factor in [7, 8, 9, 10, 11, 12]:
-                    # Calculate the next switch time (90 minutes from the last switch)
-                    now = time.localtime(self.logger.rtc.datetime)
-                    minutes_since_epoch = now[3] * 60 + now[4]
-                    next_switch_minutes = ((minutes_since_epoch // 90) + 1) * 90
-                    next_switch_hour = next_switch_minutes // 60
-                    next_switch_minute = next_switch_minutes % 60
-                    seconds_until_next_switch = ((next_switch_hour - now[3]) * 60 + (next_switch_minute - now[4])) * 60 - now[5]
+            cfg = self.config['lora']
+#             started_loop = False
+            
+            for freq, bw in freq_map.items():
+                # Skip frequencies until we reach prev_freq
+#                 if not started_loop and freq != prev_freq:
+#                     continue
+#                 
+#                 started_loop = True
+                cfg['frequency'] = freq
+                cfg['bandwidth'] = bw
+                
+                self.lora_reset_and_configure()
+                
+                cfg_str = f'Configured LoRa with: freq={cfg["frequency"]} bw={cfg["bandwidth"]} sf={cfg["spread_factor"]} cr={cfg["coding_rate"]} pw={cfg["tx_power"]}'
+                print(cfg_str)
+                self.logger.log_sys(tag=self.logger_tag, log_type='INFO', message=cfg_str)
+                
+                # Update prev_freq for next iteration
+#                 prev_freq = freq
+#                 with open(f'{prev_file}', 'w') as f:
+#                     f.write(str(prev_freq))
 
-                    # Wait until the next switch time
-                    await asyncio.sleep(15)
-
-                    # Change the configuration
-                    cfg = self.config['lora']
-                    cfg['spread_factor'] = spread_factor
-                    cfg['bandwidth'] = bandwidth
-
-                    self.lora_reset_and_configure()
-
-                    cfg_str = f'Configured LoRa with: freq={cfg['frequency']}, bw={cfg['bandwidth']}, cr={cfg['coding_rate']}, sf={cfg['spread_factor']}, pw={cfg['tx_power']}'
-                    print(cfg_str)
-                    self.logger.log_sys(tag=self.logger_tag, log_type='INFO', message=cfg_str)
+                
+                # Wait until the next switch time
+                await asyncio.sleep(self.calculate_cycle_change_secs(self.cycle_interval_mins))
+                
+            # If we've completed the dictionary, start again from the beginning
+#             if started_loop:
+#                 prev_freq = min(freq_map.keys())
+#                 with open(f'{prev_file}', 'w') as f:
+#                     f.write(str(prev_freq))
 
 
+    def calculate_cycle_change_secs(self, interval_mins):
+        # Calculate the next switch time (interval_mins from the last switch)
+        now = time.localtime(self.logger.rtc.datetime)
+        minutes_since_epoch = now[3] * 60 + now[4]
+        next_switch_minutes = ((minutes_since_epoch // interval_mins) + 1) * interval_mins
+        next_switch_hour = next_switch_minutes // 60
+        next_switch_minute = next_switch_minutes % 60
+        seconds_until_next_switch = ((next_switch_hour - now[3]) * 60 + (next_switch_minute - now[4])) * 60 - now[5]
+        return seconds_until_next_switch
+    
+    
     # # Load settings.txt, with certain changes overriding our
     # # self.config values.
     # def load_settings(self):
@@ -337,7 +437,7 @@ class FreakWAN:
                         self.duty_cycle.start_tx()
                         self.lora.send(encoded)
                         time.sleep_ms(1)
-                        self.logger.log_msg('tx', m.to_log_strings())
+                        self.logger.log_msg('tx', m.to_log_string())
                     else:
                         m.send_canceled = True
 
@@ -450,6 +550,7 @@ class FreakWAN:
         if m:
             m.rssi = rssi
             m.snr = snr
+            self.update_rssi_history(rssi)
             if bad_crc: m.flags |= MessageFlagsBadCRC
             if m.no_key == True:
                 # This message is encrypted and we don't have the
@@ -489,7 +590,7 @@ class FreakWAN:
                 self.serial_log("\033[32m"+channel_name+user_msg+" "+msg_info+"\033[0m", force=True)
 
                 # Log the message to the log file.
-                self.logger.log_msg('rx', m.to_log_strings())
+                self.logger.log_msg('rx', m.to_log_string())
 
                 # Reply with ACK if needed.
                 self.send_ack_if_needed(m)
@@ -537,7 +638,7 @@ class FreakWAN:
     # Send HELLO messages from time to time. Evict nodes not refreshed
     # for some time from the neighbors list.
     async def send_hello_message(self):
-        hello_msg_period_min = 60000        # 1 minute
+        hello_msg_period_min = 100000
         hello_msg_period_max = 120000       # 2 minutes
         hello_msg_max_age = 600000          # 10 minutes
         while True:
@@ -583,9 +684,11 @@ class FreakWAN:
                 info = ">> Sending AUTO message"
                 self.serial_log(info)
                 self.logger.log_sys(self.logger_tag, 'INFO', info)
-                self.send_asynchronously(msg,max_delay=15000,num_tx=1,relay=True)
+                self.send_asynchronously(msg,max_delay=0,num_tx=1,relay=True)
                 counter += 1
-            await asyncio.sleep(urandom.randint(20000,30000)/1000) 
+            await asyncio.sleep(urandom.randint(
+                self.config['freakwan']['automsg_min_delay'],
+                self.config['freakwan']['automsg_max_delay'])) 
 
     # This shows some information about the process in the debug console.
     def show_status_log(self):
@@ -597,7 +700,7 @@ class FreakWAN:
         msg += " FreeMem:"+str(gc.mem_free())
         msg += " DutyCycle: %.2f%%" % self.duty_cycle.get_duty_cycle()
         self.serial_log(msg)
-        # self.logger.log_sys(self.logger_tag, 'INFO', msg)
+        self.logger.log_sys(self.logger_tag, 'INFO', msg)
 
     # Return if the battery is under the low battery threshould.
     # If 'try_awake' is true, it means we are asking from the point
@@ -661,27 +764,41 @@ class FreakWAN:
     # of this file.
     async def cron(self):
         tick = 0
+        
+        if self.config['freakwan']['testing']:
+            self.cycle_config_task = asyncio.create_task(self.cycle_configurations())
 
         while True:
             if tick % 10 == 0: gc.collect()
-            if tick % 200 == 0: self.show_status_log()
+            if tick % 250 == 0: self.show_status_log()
 
             # Periodically check the battery level, and if too low, protect
             # it shutting the device down.
-            if tick % 100 == 0:
-                if self.low_battery():
-                    info = "Low battery, shutting down"
-                    self.serial_log(info)
-                    self.logger.log_sys(self.logger_tag, 'INFO', info)
-                    # TODO: print something to the display to signal the low battery.
-                    time.sleep_ms(15000)
-                    self.power_off(5000)
+#             if tick % 100 == 0:
+#                 if self.low_battery():
+#                     info = "Low battery, shutting down"
+#                     self.serial_log(info)
+#                     self.logger.log_sys(self.logger_tag, 'INFO', info)
+#                     # TODO: print something to the display to signal the low battery.
+#                     time.sleep_ms(15000)
+#                     self.power_off(5000)
 
-            # If the configuration was updated, we need to reconfigure
-            # the LoRa radio.
+            # If the configuration was updated (from web interface), we need to
+            # reconfigure the LoRa radio.
             if self.config_updated:
                 self.config_updated = False
-                self.lora_reset_and_configure()
+                if not self.config['freakwan']['testing']:
+                    # If the device was previously in testing mode and has the
+                    # cycle config task running, cancel it and reset the radio
+                    # with static settings.
+                    if self.cycle_config_task:
+                        self.cycle_config_task.cancel()
+                        try:
+                            await self.cycle_config_task
+                        except asyncio.CancelledError:
+                            pass
+                                
+                    self.lora_reset_and_configure()
 
             self.send_messages_in_queue()
             self.evict_processed_cache()

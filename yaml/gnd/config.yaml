@@ -1,0 +1,78 @@
+#$ group
+freakwan:
+  #$ tag:input type:text placeholder:nickname
+  nick: GND_*
+  #$ tag:input type:text placeholder:status
+  status: "Hi I'm GND_*******"
+  #$ tag:input type:range min:0 max:100 step:1 unit:%
+  sleep_battery_perc: 5
+  #$ tag:input type:range min:0 max:10 step:1
+  relay_num_tx: 1
+  #$ tag:input type:range min:0 max:60000 step:1000
+  relay_max_delay: 3000
+  #$ tag:input type:range min:-100 max:0 step:1
+  relay_rssi_limit: -60
+  #$ tag:input type:range min:0 max:100 step:1 unit:%
+  duty_cycle_limit: 10
+  #$ tag:input type:checkbox
+  automsg: true
+  #$ tag:input type:number min:0 max:360 step:1 unit:seconds
+  automsg_min_delay: 20
+  #$ tag:input type:number min:0 max:360 step:1 unit:seconds
+  automsg_max_delay: 30
+  #$ tag:input type:checkbox
+  tx_led: true
+  #$ tag:input type:checkbox
+  prom: false
+  #$ tag:input type:checkbox
+  quiet: false
+  #$ tag:input type:checkbox
+  check_crc: true
+  #$ tag:input type:checkbox
+  testing: true
+  #$ tag:input type:number min:1 max:360 step:1 unit:minutes
+  test_interval: 3
+
+#$ group
+lora:
+  #$ tag:input type:range min:-9 max:22 step:1 unit:dBm
+  tx_power: 22
+  #$ tag:input type:range min:7 max:12 step:1
+  spread_factor: 7
+  #$ tag:input type:range min:5 max:8 step:1 unit:4/n
+  coding_rate: 5
+  #$ tag:input type:number min:430000000 max:928000000 step:10000 unit:Hz
+  frequency: 869500000
+  #$ tag:select options:7800,10400,15600,20800,31250,41700,62500,125000,250000,500000 unit:Hz
+  bandwidth: 125000
+  #$ tag:input type:checkbox
+  boost_gain: true
+
+ap:
+  ssid: gnd_*
+  pw: picopico
+
+sx1262:
+  busy: 22
+  reset: 21
+  mosi: 19
+  chipselect: 17
+  clock: 18
+  miso: 16
+  dio: 20
+
+sd_spi:
+  chan: 1
+  mosi: 11
+  miso: 8
+  sck: 10
+  cs: 9
+
+rtc_i2c:
+  chan: 1
+  sda: 6
+  scl: 7
+
+tx_led:
+  pin: WL_GPIO0
+  inverted: False

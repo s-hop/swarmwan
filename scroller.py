@@ -38,18 +38,38 @@ class ScrollDisplay:
         
 
 class Scroller:
-    def __init__(self, get_server_info, get_battery_perc, get_num_neighbors, get_rssi_history):
+    def __init__(self, get_server_info, get_battery_perc, get_num_neighbors, get_rssi_history, get_lora_params, get_duty_cycle):
         self.display = ScrollDisplay()
 
         self.get_server_info = get_server_info
         self.get_battery_perc = get_battery_perc
         self.get_num_neighbors = get_num_neighbors
         self.get_rssi_history = get_rssi_history
+        self.get_lora_params = get_lora_params
+        self.get_duty_cycle = get_duty_cycle
 
         self.A = self.display.scroll.BUTTON_A
         # self.B = self.display.scroll.BUTTON_B
-        # self.X = self.display.scroll.BUTTON_X
+        self.X = self.display.scroll.BUTTON_X
         # self.Y = self.display.scroll.BUTTON_Y
+        
+        
+    async def show_lora_params(self, brightness, delay_ms):
+        self.display.clear()
+        params = self.get_lora_params()
+        freq = params['frequency']/1_000_000
+        bw = params['bandwidth']/1_000
+        sf = params['spread_factor']
+        cr = params['coding_rate']
+        pw = params['tx_power']
+        text = f'F:{freq:.1f}MHz BW:{bw:.1f}KHz SF:{sf} CR:{cr} PW:{pw}dBm'
+        await self.display.scroll_text(text, brightness, delay_ms)
+        
+        
+    async def show_duty_cycle(self, brightness, delay_ms):
+        self.display.clear()
+        dc = self.get_duty_cycle()
+        await self.display.scroll_text(f'DC:{dc:.2f}%', brightness, delay_ms)
 
 
     async def show_ap_info(self, brightness, delay_ms):
@@ -111,6 +131,10 @@ class Scroller:
             await self.show_battery_perc(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
 
             await self.show_ap_info(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
+            
+            await self.show_lora_params(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
+            
+            await self.show_duty_cycle(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
 
             await self.show_nearby_info(self.display.DEF_BRIGHTNESS, self.display.DEF_SCROLL_DELAY)
 
@@ -119,6 +143,7 @@ class Scroller:
 
             # wait longer between loops for battery saving.
             await asyncio.sleep_ms(loop_delay_ms)
+            
             
     async def run(self):
         asyncio.create_task(self.cycle_info(self.display.DEF_TOGGLE_DELAY, self.display.DEF_LOOP_DELAY))

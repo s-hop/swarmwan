@@ -78,9 +78,8 @@ class Message:
         # to look for the message, we just set this flag to True.
         self.send_canceled = False
 
-    # TODO: This is currently the info I want for testing, but I should come up with a more general solution, maybe.
-    def to_log_strings(self):
-        return [f'key_name,uid,type,flags,rssi,snr,text', f'{self.key_name},{self.uid},{self.type},{self.flags},{self.rssi},{self.snr},{self.text}']
+    def to_log_string(self):
+        return f'{self.key_name},{self.uid},{self.type},{self.flags},{self.rssi},{self.snr},{self.text}'
 
     # Generate a 32 bit unique message ID.
     def gen_uid(self):
