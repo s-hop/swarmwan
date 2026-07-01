@@ -4,45 +4,30 @@
 # This code is released under the BSD 2 clause license.
 # See the LICENSE file for more information
 
-import struct, time, urandom, machine
+import struct, time, urandom, machine, sys
 from micropython import const
+
+_MSG_TYPE_MASK = const(0x07)  # 0000 0111
+_MSG_FLAGS_MASK = const(0xF8)  # 1111 1000
  
 # Message types
-MessageTypeData = const(0)
-MessageTypeAck = const(1)
-MessageTypeHello = const(2)
-MessageTypeBulkStart = const(3)
-MessageTypeBulkData = const(4)
-MessageTypeBulkEND = const(5)
-MessageTypeBulkReply = const(6)
-
+MSG_T_DATA = const(1)
+MSG_T_ACK = const(1<<1)
+MSG_T_HELLO = const(1<<2)
 # Message flags
-MessageFlagsNone = const(0)               # No flags
-MessageFlagsRelayed = const(1<<0)         # Repeated message
-MessageFlagsPleaseRelay = const(1<<1)     # Please repeat this message
-MessageFlagsFragment = const(1<<2)        # One fragment of many
-MessageFlagsMedia = const(1<<3)           # Message contains some media
-MessageFlagsEncr = const(1<<4)            # Message is encrypted
+MSG_FLAG_RELAYED = const(1<<3)     
+MSG_FLAG_PLEASE_RELAY = const(1<<4)
+MSG_FLAG_ENCR = const(1<<5)
 
 # Virtual flags: not really in the packet header, but added
 # in the message object representing the packet to provide
 # further information.
-MessageFlagsBadCRC = const(1<<8)          # Message CRC is bad
-
-# Media types
-MessageMediaTypeImageFCI = const(0)
-MessageMediaTypeSensorData = const(1)
-
-# Sensor data media type readings
-MessageSensorDataTemperature = const(0)
-MessageSensorDataAirHumidity = const(1)
-MessageSensorDataGroundHumidity = const(2)
-MessageSensorDataBattery = const(3)
+MSG_FLAG_BADCRC = const(1<<7)
 
 # The message object represents a FreakWAN message, and is also responsible
 # of the decoding and encoding of the messages to be sent to the "wire".
 class Message:
-    def __init__(self, nick="", text="", media_type=255, media_data=False, uid=False, ttl=15, mtype=MessageTypeData, sender=False, flags=0, rssi=0, ack_type=0, seen=0, key_name=None):
+    def __init__(self, nick='---', content='---', uid=False, ttl=0, mtype=MSG_T_DATA, flags=0, rssi=0, seen=0, key_name=None):
         self.ctime = time.ticks_ms() # To evict old messages
 
         # send_time is only useful for sending, to introduce a random delay.
@@ -56,13 +41,9 @@ class Message:
         self.type = mtype
         self.flags = flags
         self.nick = nick
-        self.text = text
-        self.media_type = media_type
-        self.media_data = media_data
+        self.content = content
         self.uid = uid if uid != False else self.gen_uid()
-        self.sender = sender if sender != False else self.get_this_sender()
         self.ttl = ttl              # Only DATA
-        self.ack_type = ack_type    # Only ACK
         self.seen = seen            # Only HELLO
         self.rssi = rssi
         self.snr = 0
@@ -79,71 +60,75 @@ class Message:
         self.send_canceled = False
 
     def to_log_string(self):
-        return f'{self.key_name},{self.uid},{self.type},{self.flags},{self.rssi},{self.snr},{self.text}'
+        if self.type == MSG_T_DATA:
+            type_str = 'data'
+        elif self.type == MSG_T_ACK:
+            type_str = 'ack'
+        elif self.type == MSG_T_HELLO:
+            type_str = 'hello'
+        return f'{type_str},{self.uid:04x},{self.nick},{self.flags>>3:04b},{self.rssi:.0f},{self.snr},{self.ttl},{self.content}'
 
-    # Generate a 32 bit unique message ID.
+    # Generate a 16 bit unique message ID.
     def gen_uid(self):
-        return urandom.getrandbits(32)
-
-    # Get the sender address for this device. We just take 6 bytes
-    # of the device unique ID.
-    def get_this_sender(self):
-        return machine.unique_id()[-6:]
-
-    # Return the sender as a printable hex string.
-    def sender_to_str(self):
-        if self.sender:
-            s = self.sender
-            return "%02x%02x%02x%02x%02x%02x" % (s[0],s[1],s[2],s[3],s[4],s[5])
-        else:
-            return "ffffffffffff"
+        return urandom.getrandbits(16)
 
     # Turn the message into its binary representation.
-    def encode(self,keychain=None):
+    def encode(self, keychain=None):
+        # combine type and flags into a single byte mask
+        combined = (self.type & _MSG_TYPE_MASK | self.flags & _MSG_FLAGS_MASK)
+        
         if self.no_key == True:
             # Message that we were not able to decrypt. In this case
             # we saved the packet, and we just need to encode the
             # plaintext header and concatenate the saved packet from the
             # IV field till the end.
-            return struct.pack("<BBLB",self.type,self.flags,self.uid,self.ttl)+self.packet[7:]
-        elif self.type == MessageTypeData:
-            # Encode with the encryption flag set, if we are going to
-            # encrypt the packet.
-            encr_flag = MessageFlagsEncr if self.key_name else MessageFlagsNone
-            encoded = struct.pack("<BBLB6sB",self.type,self.flags|encr_flag,self.uid,self.ttl,self.sender,len(self.nick))+self.nick
-            if self.flags & MessageFlagsMedia:
-                encoded += bytes([self.media_type])+self.media_data
-            else:
-                encoded += self.text
+            return struct.pack("<BHB",combined,self.uid,self.ttl)+self.packet[4:]
+        
+        elif self.type == MSG_T_DATA:
+            # Encode with the encryption flag set
+            combined |= MSG_FLAG_ENCR
+                
+            # TODO: Determine a good fixed payload length. Currently using 20
+            # bytes, which probably isn't long enough for useful messages.
+            # DATA messages use:
+            # 1 byte for  type+flags
+            # 2 bytes for message UID
+            # 1 byte for  TTL
+            # -- nickname is probably not needed in final design as messages
+            # -- are determined by enc key.
+            # 3 bytes for nickname
+            # 10 bytes for message content (0000-9999 + 8 byte padding)
+            # 3 bytes for key_id
+                
+            header = struct.pack('<BHB', combined, self.uid, self.ttl)
+            payload = keychain.encrypt(
+                struct.pack('<13s', self.content.encode()),
+                keychain.device_key_name)
 
-            # Encrypt if needed and if a keychain was provided.
-            if self.key_name:
-                if keychain:
-                    encoded = keychain.encrypt(encoded,self.key_name)
-                else:
-                    printf("Warning: no keychain provided to Message.encode(). Message with key_name set will be unencrypted.")
-            return encoded
-        elif self.type == MessageTypeAck:
-            return struct.pack("<BBLB",self.type,self.flags,self.uid,self.ack_type)+self.sender
-        elif self.type == MessageTypeHello:
-            return struct.pack("<BB6sBB",self.type,self.flags,self.sender,self.seen,len(self.nick))+self.nick+self.text
+            return header + payload
+        
+        elif self.type == MSG_T_ACK:
+            # ACK content is a 2 byte RSSI for the DATA msg being ACKed 
+            return struct.pack("<BHh3s",combined,self.uid,self.content,self.nick)
+#         elif self.type == MSG_T_HELLO:
+#             return struct.pack("<BB3s",combined,self.seen,self.nick)
         else:
             print("WARNING Message.encode() unknown msg type",self.type)
             return None
 
     # Fill the message with the data found in the binary representation
     # provided in 'msg'.
-    def decode(self,msg,keychain=None):
+    def decode(self, msg, keychain=None):
         try:
-            mtype,flags = struct.unpack("<BB",msg)
+            combined = struct.unpack("<B", msg[0:1])[0]
+            
+            # Extract type and flags
+            mtype = combined & _MSG_TYPE_MASK
+            flags = combined & _MSG_FLAGS_MASK
 
             # If the message is encrypted, try to decrypt it.
-            if mtype == MessageTypeData and flags & MessageFlagsEncr:
-                if not keychain:
-                    printf("Encrypted message received, no keychain given")
-                    plain = None
-                else:
-                    plain = keychain.decrypt(msg)
+            if mtype == MSG_T_DATA and combined & MSG_FLAG_ENCR:
+                plain = keychain.decrypt(msg[4:])
 
                 # Messages for which we don't have a valid key
                 # are returned in a "raw" form, useful only for relaying.
@@ -151,68 +136,50 @@ class Message:
                 # setting .no_key to True. We also decode what is in the
                 # unencrypted part of the header.
                 if not plain:
-                    self.type,self.flags,self.uid,self.ttl = struct.unpack("<BBLB",msg)
+                    self.type = mtype
+                    self.flags = flags
+                    self.uid, self.ttl = struct.unpack("<HB", msg[1:4])
                     self.no_key = True
-                    self.packet = msg # Save the encrypted message.
+                    self.packet = msg
                     return True
 
                 # If we have the key, the message is now decrypted.
                 # We can continue with the normal code path after
                 # populating key_name.
                 self.key_name = plain[0]
-                msg = plain[1]
-
+                msg = msg[:4] + plain[1]
+                
             # Decode according to message type.
-            if mtype == MessageTypeData:
-                self.type,self.flags,self.uid,self.ttl,self.sender,nick_len = struct.unpack("<BBLB6sB",msg)
-                self.nick = msg[14:14+nick_len].decode("utf-8")
-                msg = msg[14+nick_len:] # Discard header and nick
-
-                if self.flags & MessageFlagsMedia:
-                    self.media_type = msg[0]
-                    self.media_data = msg[1:]
-                else:
-                    self.text = msg.decode("utf-8")
+            if mtype == MSG_T_DATA:
+                self.type = mtype
+                self.flags = flags
+                self.uid, self.ttl = struct.unpack("<HB", msg[1:4])
+                self.nick = self.key_name
+                self.content = msg[4:].decode()
                 return True
-            elif mtype == MessageTypeAck:
-                self.type,self.flags,self.uid,self.ack_type,self.sender = struct.unpack("<BBLB6s",msg)
+            elif mtype == MSG_T_ACK:
+                self.type = mtype
+                self.flags = flags
+                self.uid,self.content = struct.unpack("<Hh",msg[1:5])
+                self.nick = msg[5:8].decode()
                 return True
-            elif mtype == MessageTypeHello:
-                self.type,self.flags,self.sender,self.seen,nick_len = struct.unpack("<BB6sBB",msg)
-                self.nick = msg[10:10+nick_len].decode("utf-8")
-                self.text = msg[10+nick_len:].decode("utf-8")
-                return True
+#             elif mtype == MSG_T_HELLO:
+#                 self.type = mtype
+#                 self.flags = flags
+#                 self.seen = struct.unpack("<B",msg[1:2])
+#                 self.nick = msg[2:5].decode('utf-8')
+#                 return True
             else:
-                print("!!! Decoding message: wrong message type %d" % mtype)
+                print(f'!!! Decoding message: wrong message type {mtype}')
                 return False
         except Exception as e:
-            print("!!! Message decode error msg="+str(msg)+" err="+str(e))
+            print(str(e))
             return False
 
     # Create a message object from the binary representation of a message.
-    def from_encoded(encoded,keychain):
+    def from_encoded(encoded, keychain):
         m = Message()
-        if m.decode(encoded,keychain):
+        if m.decode(encoded, keychain):
             return m
         else:
             return False
-
-    # Turn the media data in the message into a string that can be parsed
-    # by other programs.
-    def sensor_data_to_str(self):
-        l = len(self.media_data)
-        off = 0
-        res = ""
-        while l > 0:
-            fieldtype = self.media_data[off]
-            off += 1
-            l -= 1
-            if fieldtype == MessageSensorDataTemperature or fieldtype == MessageSensorDataAirHumidity or fieldtype == MessageSensorDataGroundHumidity or fieldtype == MessageSensorDataBattery:
-                if l < 4: return "field data missing"
-                val = struct.unpack("f",self.media_data[off:])
-                off += 4
-                l -= 4
-                res += "%d:%.2f " % (fieldtype, val[0])
-            else:
-                return "field type error"
-        return res

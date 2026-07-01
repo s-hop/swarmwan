@@ -14,7 +14,6 @@ def parse_value(value):
         return True
     elif value.lower() == 'false':
         return False
-
     elif value.lower() == 'null':
         return None
 
@@ -114,7 +113,7 @@ def parse_yaml(file_contents):
                 i += 2
                 continue
         
-                # Skip comments
+        # Skip comments
         elif line.startswith('#'):
             i += 1
             continue
@@ -137,6 +136,7 @@ def parse_yaml(file_contents):
         'plain': plain_data
     }
 
+# TODO: Replace string concatenation with a less memory-abusive approach
 def rebuild_yaml(parsed_config):
     """
     Rebuilds a configuration file from parsed data.
@@ -147,28 +147,26 @@ def rebuild_yaml(parsed_config):
     Returns:
         str: Rebuilt configuration file content
     """
-    rebuilt_config = ''
+    rebuilt = ''
     
     # Rebuild decorated groups
     for group, pairs in parsed_config['decorated'].items():
-        rebuilt_config += '#$ group\n'
-        rebuilt_config += f'{group}:\n'
+        rebuilt += f'#$ group\n{group}:\n'
         
-        for pair in pairs:
-            rebuilt_config += f'  {pair["comment"]}\n'
-            rebuilt_config += f'  {pair["id"]}: {pair["value"]}\n'
+        for p in pairs:
+            rebuilt += f'  {p["comment"]}\n  {p["id"]}: {p["value"]}\n'
         
-        rebuilt_config += '\n'  # Empty line between groups
+        rebuilt += '\n'  # Empty line between groups
         
     # Append plain YAML content
     for group, pairs in parsed_config['plain'].items():
-        rebuilt_config += f'{group}:\n'
+        rebuilt += f'{group}:\n'
         for key, value in pairs.items():
-            rebuilt_config += f'  {key}: {value}\n'
+            rebuilt += f'  {key}: {value}\n'
             
-        rebuilt_config += '\n'  # Empty line between groups
-    
-    rebuilt_config = rebuilt_config[:-2] # hack to remove trailing blank lines
+        rebuilt += '\n'  # Empty line between groups
+
+    rebuilt = rebuilt[:-2] # hack to remove trailing blank lines
 
     # Return as string
-    return rebuilt_config
+    return rebuilt

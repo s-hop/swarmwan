@@ -1,34 +1,30 @@
-import asyncio, json, network, socket
+import asyncio, json, network, time, gc
 from microdot import Microdot, send_file, redirect
 from dns import DNSCatchall
+
 
 class ServerInfo:
     def __init__(self, ssid='', active=False):
         self.ssid = ssid
-        self.active = active    
+        self.active = active
+
 
 class WebServer:
-    def __init__(self, ssid, pw, get_config, update_config, get_log):
-        self.get_config = get_config
-        self.update_config = update_config
-        self.get_log = get_log
+    def __init__(self, ssid, pw, config, logger, nodes, command_queue):
+        self.log_array = bytearray(30000)
+        gc.collect()
         self.ssid = ssid
         self.password = pw
+        self.config = config
+        self.logger = logger
+        self.logger_tag = 'WEB'
+        self.nodes = nodes
+        self.command_queue = command_queue
         self.ap = network.WLAN(network.AP_IF)
         self.app = Microdot()
         self.active = False
         self.server_task = None
         self.dns_task = None
-        self.display_toggle_callback = None
-        
-        # Captive Portal Routes
-        @self.app.route('/')
-        async def index(request):
-            return redirect('/config')
-
-        @self.app.route('/config')
-        async def config(request):
-            return self.read_html('/server/index.html'), 200, {'Content-Type': 'text/html'}
 
         # Captive Portal Detection Routes
         @self.app.route('/generate_204')
@@ -36,34 +32,102 @@ class WebServer:
         @self.app.route('/connecttest.txt')
         @self.app.route('/redirect')
         async def captive_portal_detect(request):
-            return await config(request)
+            return await clock(request)
 
-        @self.app.route('/log/<path:path>')
-        async def log(request, path):
+        @self.app.route('/')
+        async def index(request):
+            return redirect('/clock')
+
+        @self.app.route('/config')
+        async def config(request):
+            return self.read_html('/server/config.html'), 200, {'Content-Type': 'text/html'}
+        
+        @self.app.route('/load')
+        async def load_config_file(request):
+            return self.read_html('/server/load.html'), 200, {'Content-Type': 'text/html'}
+
+        @self.app.route('/load/get')
+        async def get_config_list(request):
+            list = self.config.get_file_list()
+            return list, 200, {'Content-Type': 'text/plain'}
+        
+        @self.app.route('/load/set', methods=['POST'])
+        async def set_config(request):
+            self.config.set_config_file(request.body.decode('utf-8'))
+            self.logger.log_sys(self.logger_tag, 'INFO', 'Config Updated')
+            return 200
+        
+        @self.app.route('/nodes')
+        async def nodes(request):
+            return self.read_html('/server/nodes.html'), 200, {'Content-Type': 'text/html'}
+        
+        @self.app.route('/nodes/get')
+        async def get_nodes(request):
+            response = {'nodes':{},'threshold':0}
+            nodes = self.nodes.all
+            for node, data in nodes.items():
+                data['last_seen_s'] = time.ticks_diff(time.ticks_ms(), data['last_seen_ms']) / 1000
+            response['nodes'] = nodes.copy()
+            cfg = self.config.get_plain()
+            response['threshold'] = cfg['FW']['node_flush_threshold']
+            
+            return json.dumps(response), 200, {'Content-Type': 'application/json'}
+        
+        @self.app.route('/clock')
+        async def clock(request):
+            return self.read_html('/server/clock.html'), 200, {'Content-Type': 'text/html'}
+
+        @self.app.route('/clock/get')
+        async def get_clock(request):
+            dt = self.logger.get_datetime_ISO_str()
+            return dt, 200, {'Content-Type': 'text/plain'}
+
+        @self.app.route('/clock/set', methods=['POST'])
+        async def set_clock(request):
+            self.logger.set_rtc(int(request.body.decode('utf-8')))
+            self.logger.log_sys(self.logger_tag, 'INFO', 'RTC Updated')
+            return 200
+
+        @self.app.route('/log')
+        async def log(request):
+            return self.read_html('/server/log.html'), 200, {'Content-Type': 'text/html'}
+        
+        @self.app.route('log/get/<path:path>')
+        async def get_log(request, path):
+            log_pos = await self.logger.get_recent_logs(path, self.log_array)
+            m = memoryview(self.log_array)
+            return m[0:log_pos], 200, {'Content-Type': 'text/plain'}
+
+        @self.app.route('/log/count/<path:path>')
+        async def log_count(request, path):
             if '..' in path:
                 # directory traversal is not allowed
-                return 'Not found', 404
-            log = await get_log(path)
-            return log, 200, {'Content-Type': 'text/csv'}
+                return 404
+            count = f'{self.logger.get_log_file_count(path)}'
+            return count, 200, {'Content-Type': 'text/plain'}
 
         @self.app.route('/scripts/<path:path>')
         async def script(request, path):
             if '..' in path:
                 # directory traversal is not allowed
-                return 'Not found', 404
-            return send_file('/server/scripts/' + path)
+                return 404
+            return send_file(f'/server/scripts/{path}')
 
         @self.app.route('/data', methods=['GET', 'POST'])
         async def data(request):
+            gc.collect()
             if request.method == 'POST':
-                decoded = json.loads(request.body.decode('utf-8'))
-                self.update_config(decoded)
-                return 'Config data updated successfully!'
-            return self.get_config()['decorated'], 200
-        
+                try:
+                    decoded = json.loads(request.body.decode('utf-8'))
+                    self.config.web_update(decoded)
+                except MemoryError:
+                    return 500   
+                return 200
+            return self.config.get()['decorated'], 200
+
         @self.app.route('/display')
         async def display(request):
-            self.display_toggle_callback()
+            await self.command_queue.put('toggle_display')
             return 'Display toggled!', 200
 
     def get_info(self):
@@ -76,7 +140,6 @@ class WebServer:
         except OSError:
             print('Error reading HTML file')
             return ''
-
 
     async def start_dns_server(self, ip_address, port=53):
         print(f'> starting catch all dns server on {ip_address}')
@@ -106,7 +169,7 @@ class WebServer:
                     await self.server_task
                 except asyncio.CancelledError:
                     pass
-            
+
             self.active = False
         else:
             print('Activating server...')
@@ -121,9 +184,7 @@ class WebServer:
 
             await self.start_dns_server(ip_address)
 
+            self.server_task = asyncio.create_task(
+                self.app.start_server(debug=False, port=80, host=ip_address))
+            
             self.active = True
-            self.server_task = asyncio.create_task(self.app.start_server(debug=True, port=80, host=ip_address))
-            
-            
-    def set_display_toggle_callback(self, callback):
-        self.display_toggle_callback = callback

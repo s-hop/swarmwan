@@ -1,0 +1,96 @@
+#$ group
+FW:
+  #$ tag:input type:text placeholder:nickname
+  nick: G03
+  #$ tag:input type:range min:0 max:100 step:1 unit:%
+  duty_cycle_limit: 10
+  #$ tag:input type:checkbox
+  automsg: true
+  #$ tag:input type:number min:1 max:60000 step:1 unit:secs
+  automsg_min_delay: 20
+  #$ tag:input type:number min:1 max:60000 step:1 unit:secs
+  automsg_max_delay: 40
+  #$ tag:input type:number min:1 max:60000 step:1 unit:secs
+  node_flush_threshold: 60
+  #$ tag:input type:number min:1 max:60000 step:1 unit:secs
+  node_flush_interval: 20
+  #$ tag:input type:checkbox
+  acks: false
+  #$ tag:input type:range min:0 max:60000 step:1000
+  ack_max_delay: 3000
+  #$ tag:input type:checkbox
+  relays: false
+  #$ tag:input type:range min:0 max:60000 step:1000
+  relay_max_delay: 3000
+  #$ tag:input type:range min:0 max:10 step:1
+  relay_num_tx: 1
+  #$ tag:input type:range min:-100 max:0 step:1
+  relay_rssi_limit: 0
+  #$ tag:input type number min:1 max:100 step:1
+  ttl: 4
+  #$ tag:input type:checkbox
+  check_crc: true
+  #$ tag:input type:checkbox
+  tx_led: true
+  #$ tag:input type:checkbox
+  testing: false
+  #$ tag:input type:number min:60 max:3600 step:1 unit:seconds
+  test_cycle_duration: 180
+  #$ tag:select options:*.csv
+  test_cycle_file: *.csv
+
+#$ group
+lora:
+  #$ tag:input type:range min:-9 max:22 step:1 unit:dBm
+  pw: 22
+  #$ tag:input type:range min:7 max:12 step:1
+  sf: 12
+  #$ tag:input type:range min:5 max:8 step:1 unit:4/n
+  cr: 8
+  #$ tag:input type:number min:430000000 max:928000000 step:10000 unit:Hz
+  fq: 869500000
+  #$ tag:select options:7800,10400,15600,20800,31250,41700,62500,125000,250000,500000 unit:Hz
+  bw: 125000
+
+#$ group
+display:
+  #$ tag:input type:range min:1 max:255 step:1
+  brightness_low: 10
+  #$ tag:input type:range min:1 max:255 step:1
+  brightness_high: 255
+
+battery:
+  v_nom: 11.1
+  adc_multiplier: 11.11
+  v_min: 9.3
+  adc_pin: 28
+
+sd_spi:
+  cs: 9
+  miso: 8
+  sck: 10
+  chan: 1
+  mosi: 11
+
+tx_led:
+  pin: WL_GPIO0
+  inverted: False
+
+sx1262:
+  soft: False
+  busy: 22
+  reset: 21
+  mosi: 19
+  dio: 20
+  miso: 16
+  clock: 18
+  chipselect: 17
+
+ap:
+  ssid: mesh_g03
+  pw: picopico
+
+rtc_i2c:
+  chan: 1
+  scl: 7
+  sda: 6

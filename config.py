@@ -1,9 +1,13 @@
+import sys
+import os
+import machine
 from yaml_parser import parse_yaml, rebuild_yaml
 
 class Config:
-    def __init__(self, file_path):
-        self.file_path = file_path
-        self.data = parse_yaml(self.read())
+    def __init__(self, config_dir):
+        self.config_dir = config_dir
+        self.filename = self.get_filename()
+        self.data = parse_yaml(self.get_contents())
         self.update_callback = None
 
     def get(self):
@@ -18,18 +22,33 @@ class Config:
         
         plain_config.update(self.data['plain'])
         return plain_config
-
-    def read(self):
-        with open(self.file_path, 'r') as f:
+    
+    def get_file_list(self):
+        files = [f for f in os.listdir(self.config_dir) 
+                 if not f.startswith('current')]
+        files.append(self.filename)
+        return ','.join(files)
+    
+    def get_filename(self):
+        with open(f'{self.config_dir}/current.txt', 'r') as f:
+            return f.read()    
+        
+    def get_contents(self):
+        with open(f'{self.config_dir}/{self.filename}', 'r') as f:
             return f.read()
+        
+    def set_config_file(self, config):
+        with open(f'{self.config_dir}/current.txt', 'w') as f:
+            f.write(config)
+        sys.exit()
         
     def web_update(self, updated_config):
         self.data.update({'decorated': updated_config})
 
-        with open(self.file_path, 'w') as f:
+        with open(f'{self.config_dir}/{self.filename}', 'w') as f:
             f.write(rebuild_yaml(self.data))
 
-        self.data = parse_yaml(self.read())
+        self.data = parse_yaml(self.get_contents())
 
         if self.update_callback:  # Notify if callback is set
             try:
